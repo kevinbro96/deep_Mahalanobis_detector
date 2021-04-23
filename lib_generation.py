@@ -66,7 +66,7 @@ def sample_estimator(model, num_classes, feature_list, train_loader):
     for data, target in train_loader:
         total += data.size(0)
         data = data.cuda()
-        data = Variable(data, volatile=True)
+        data = Variable(data)
         output, out_features = model.feature_list(data)
         
         # get hidden features
@@ -177,8 +177,8 @@ def get_Mahalanobis_score(model, test_loader, num_classes, outf, out_flag, net_t
             gradient.index_copy_(1, torch.LongTensor([1]).cuda(), gradient.index_select(1, torch.LongTensor([1]).cuda()) / (0.1994))
             gradient.index_copy_(1, torch.LongTensor([2]).cuda(), gradient.index_select(1, torch.LongTensor([2]).cuda()) / (0.2010))
         tempInputs = torch.add(data.data, -magnitude, gradient)
- 
-        noise_out_features = model.intermediate_forward(Variable(tempInputs, volatile=True), layer_index)
+        with torch.no_grad():
+            noise_out_features = model.intermediate_forward(Variable(tempInputs), layer_index)
         noise_out_features = noise_out_features.view(noise_out_features.size(0), noise_out_features.size(1), -1)
         noise_out_features = torch.mean(noise_out_features, 2)
         noise_gaussian_score = 0
@@ -244,7 +244,8 @@ def get_posterior(model, net_type, test_loader, magnitude, temperature, outf, ou
             gradient.index_copy_(1, torch.LongTensor([2]).cuda(), gradient.index_select(1, torch.LongTensor([2]).cuda()) / (0.2010))
 
         tempInputs = torch.add(data.data,  -magnitude, gradient)
-        outputs = model(Variable(tempInputs, volatile=True))
+        with torch.no_grad():
+            outputs = model(Variable(tempInputs))
         outputs = outputs / temperature
         soft_out = F.softmax(outputs, dim=1)
         soft_out, _ = torch.max(soft_out.data, dim=1)
@@ -307,8 +308,9 @@ def get_Mahalanobis_score_adv(model, test_data, test_label, num_classes, outf, n
             gradient.index_copy_(1, torch.LongTensor([1]).cuda(), gradient.index_select(1, torch.LongTensor([1]).cuda()) / (0.1994))
             gradient.index_copy_(1, torch.LongTensor([2]).cuda(), gradient.index_select(1, torch.LongTensor([2]).cuda()) / (0.2010))
         tempInputs = torch.add(data.data, -magnitude, gradient)
- 
-        noise_out_features = model.intermediate_forward(Variable(tempInputs, volatile=True), layer_index)
+
+        with torch.no_grad():
+            noise_out_features = model.intermediate_forward(Variable(tempInputs), layer_index)
         noise_out_features = noise_out_features.view(noise_out_features.size(0), noise_out_features.size(1), -1)
         noise_out_features = torch.mean(noise_out_features, 2)
         noise_gaussian_score = 0
@@ -325,7 +327,6 @@ def get_Mahalanobis_score_adv(model, test_data, test_label, num_classes, outf, n
         Mahalanobis.extend(noise_gaussian_score.cpu().numpy())
         
     return Mahalanobis
-
 
 def get_LID(model, test_clean_data, test_adv_data, test_noisy_data, test_label, num_output):
     '''
@@ -350,28 +351,28 @@ def get_LID(model, test_clean_data, test_adv_data, test_noisy_data, test_label, 
         target = test_label[total : total + batch_size].cuda()
 
         total += batch_size
-        data, target = Variable(data, volatile=True), Variable(target)
+        data, target = Variable(data), Variable(target)
         
         output, out_features = model.feature_list(data)
         X_act = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
             out_features[i] = torch.mean(out_features[i].data, 2)
-            X_act.append(np.asarray(out_features[i], dtype=np.float32).reshape((out_features[i].size(0), -1)))
-        
-        output, out_features = model.feature_list(Variable(adv_data, volatile=True))
+            X_act.append(np.asarray(out_features[i].cpu(), dtype=np.float32).reshape((out_features[i].size(0), -1)))
+        with torch.no_grad():
+            output, out_features = model.feature_list(Variable(adv_data))
         X_act_adv = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
             out_features[i] = torch.mean(out_features[i].data, 2)
-            X_act_adv.append(np.asarray(out_features[i], dtype=np.float32).reshape((out_features[i].size(0), -1)))
-
-        output, out_features = model.feature_list(Variable(noisy_data, volatile=True))
+            X_act_adv.append(np.asarray(out_features[i].cpu(), dtype=np.float32).reshape((out_features[i].size(0), -1)))
+        with torch.no_grad():
+            output, out_features = model.feature_list(Variable(noisy_data))
         X_act_noisy = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
             out_features[i] = torch.mean(out_features[i].data, 2)
-            X_act_noisy.append(np.asarray(out_features[i], dtype=np.float32).reshape((out_features[i].size(0), -1)))
+            X_act_noisy.append(np.asarray(out_features[i].cpu(), dtype=np.float32).reshape((out_features[i].size(0), -1)))
         
         # LID
         list_counter = 0 
