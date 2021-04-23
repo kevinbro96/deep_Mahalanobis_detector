@@ -42,7 +42,7 @@ def merge_and_generate_labels(X_pos, X_neg):
 
     return X, y
 
-def sample_estimator(model, num_classes, feature_list, train_loader):
+def sample_estimator(model, vae, num_classes, feature_list, train_loader):
     """
     compute sample mean and precision (inverse of covariance)
     return: sample_class_mean: list of class mean
@@ -67,7 +67,7 @@ def sample_estimator(model, num_classes, feature_list, train_loader):
         total += data.size(0)
         data = data.cuda()
         data = Variable(data)
-        output, out_features = model.feature_list(data)
+        output, out_features = model.feature_list(data - vae(data))
         
         # get hidden features
         for i in range(num_output):
@@ -259,7 +259,7 @@ def get_posterior(model, net_type, test_loader, magnitude, temperature, outf, ou
     f.close()
     g.close()
     
-def get_Mahalanobis_score_adv(model, test_data, test_label, num_classes, outf, net_type, sample_mean, precision, layer_index, magnitude):
+def get_Mahalanobis_score_adv(model, vae, test_data, test_label, num_classes, outf, net_type, sample_mean, precision, layer_index, magnitude):
     '''
     Compute the proposed Mahalanobis confidence score on adversarial samples
     return: Mahalanobis score from layer_index
@@ -275,7 +275,7 @@ def get_Mahalanobis_score_adv(model, test_data, test_label, num_classes, outf, n
         total += batch_size
         data, target = Variable(data, requires_grad = True), Variable(target)
         
-        out_features = model.intermediate_forward(data, layer_index)
+        out_features = model.intermediate_forward(data-vae(data), layer_index)
         out_features = out_features.view(out_features.size(0), out_features.size(1), -1)
         out_features = torch.mean(out_features, 2)
         
@@ -310,7 +310,7 @@ def get_Mahalanobis_score_adv(model, test_data, test_label, num_classes, outf, n
         tempInputs = torch.add(data.data, -magnitude, gradient)
 
         with torch.no_grad():
-            noise_out_features = model.intermediate_forward(Variable(tempInputs), layer_index)
+            noise_out_features = model.intermediate_forward(Variable(tempInputs)-vae(Variable(tempInputs)), layer_index)
         noise_out_features = noise_out_features.view(noise_out_features.size(0), noise_out_features.size(1), -1)
         noise_out_features = torch.mean(noise_out_features, 2)
         noise_gaussian_score = 0
@@ -328,7 +328,7 @@ def get_Mahalanobis_score_adv(model, test_data, test_label, num_classes, outf, n
         
     return Mahalanobis
 
-def get_LID(model, test_clean_data, test_adv_data, test_noisy_data, test_label, num_output):
+def get_LID(model, vae, test_clean_data, test_adv_data, test_noisy_data, test_label, num_output):
     '''
     Compute LID score on adversarial samples
     return: LID score
@@ -353,21 +353,21 @@ def get_LID(model, test_clean_data, test_adv_data, test_noisy_data, test_label, 
         total += batch_size
         data, target = Variable(data), Variable(target)
         
-        output, out_features = model.feature_list(data)
+        output, out_features = model.feature_list(data - vae(data))
         X_act = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
             out_features[i] = torch.mean(out_features[i].data, 2)
             X_act.append(np.asarray(out_features[i].cpu(), dtype=np.float32).reshape((out_features[i].size(0), -1)))
         with torch.no_grad():
-            output, out_features = model.feature_list(Variable(adv_data))
+            output, out_features = model.feature_list(Variable(adv_data)-vae(Variable(adv_data)))
         X_act_adv = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
             out_features[i] = torch.mean(out_features[i].data, 2)
             X_act_adv.append(np.asarray(out_features[i].cpu(), dtype=np.float32).reshape((out_features[i].size(0), -1)))
         with torch.no_grad():
-            output, out_features = model.feature_list(Variable(noisy_data))
+            output, out_features = model.feature_list(Variable(noisy_data)-vae(Variable(noisy_data)))
         X_act_noisy = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)

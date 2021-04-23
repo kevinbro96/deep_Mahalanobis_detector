@@ -24,6 +24,7 @@ parser.add_argument('--num_classes', type=int, default=10, help='the # of classe
 parser.add_argument('--net_type', required=True, help='resnet | densenet')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
 parser.add_argument('--adv_type', required=True, help='FGSM | BIM | DeepFool | CWL2')
+parser.add_argument('--vae_path', default='./data/emb2048/model_epoch172.pth', help='folder to output results')
 args = parser.parse_args()
 print(args)
 
@@ -48,12 +49,24 @@ def main():
             model = torch.load(pre_trained_net, map_location = "cuda:" + str(args.gpu))
         in_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((125.3/255, 123.0/255, 113.9/255), (63.0/255, 62.1/255.0, 66.7/255.0)),])
     elif args.net_type == 'resnet':
-        model = models.ResNet34(num_c=args.num_classes)
-        model.load_state_dict(torch.load(pre_trained_net, map_location = "cuda:" + str(args.gpu)))
+        # model = models.ResNet34(num_c=args.num_classes)
+        # model.load_state_dict(torch.load(pre_trained_net, map_location = "cuda:" + str(args.gpu)))
         in_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),])
+
+    model = torch.load(pre_trained_net)
     model.cuda()
     print('load model: ' + args.net_type)
-    
+    vae = models.CVAE(d=32, z=2048)
+    vae = nn.DataParallel(vae)
+    save_model = torch.load(args.vae_path)
+    model_dict = vae.state_dict()
+    state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
+    print(state_dict.keys())
+    model_dict.update(state_dict)
+    vae.load_state_dict(model_dict)
+    vae.cuda()
+    vae.eval()
+
     # load dataset
     print('load target data: ', args.dataset)
     train_loader, _ = data_loader.getTargetDataSet(args.dataset, args.batch_size, in_transform, args.dataroot)
@@ -66,7 +79,7 @@ def main():
     model.eval()
     temp_x = torch.rand(2,3,32,32).cuda()
     temp_x = Variable(temp_x)
-    temp_list = model.feature_list(temp_x)[1]
+    temp_list = model.feature_list(temp_x-vae(temp_x))[1]
     num_output = len(temp_list)
     feature_list = np.empty(num_output)
     count = 0
@@ -75,11 +88,11 @@ def main():
         count += 1
         
     print('get sample mean and covariance')
-    sample_mean, precision = lib_generation.sample_estimator(model, args.num_classes, feature_list, train_loader)
+    sample_mean, precision = lib_generation.sample_estimator(model, vae, args.num_classes, feature_list, train_loader)
     
     print('get LID scores')
     LID, LID_adv, LID_noisy \
-    = lib_generation.get_LID(model, test_clean_data, test_adv_data, test_noisy_data, test_label, num_output)          
+    = lib_generation.get_LID(model, vae, test_clean_data, test_adv_data, test_noisy_data, test_label, num_output)
     overlap_list = [10, 20, 30, 40, 50, 60, 70, 80, 90]
     list_counter = 0
     for overlap in overlap_list:
@@ -99,7 +112,7 @@ def main():
         print('\nNoise: ' + str(magnitude))
         for i in range(num_output):
             M_in \
-            = lib_generation.get_Mahalanobis_score_adv(model, test_clean_data, test_label, \
+            = lib_generation.get_Mahalanobis_score_adv(model, vae, test_clean_data, test_label, \
                                                        args.num_classes, args.outf, args.net_type, \
                                                        sample_mean, precision, i, magnitude)
             M_in = np.asarray(M_in, dtype=np.float32)
@@ -110,7 +123,7 @@ def main():
 
         for i in range(num_output):
             M_out \
-            = lib_generation.get_Mahalanobis_score_adv(model, test_adv_data, test_label, \
+            = lib_generation.get_Mahalanobis_score_adv(model, vae, test_adv_data, test_label, \
                                                        args.num_classes, args.outf, args.net_type, \
                                                        sample_mean, precision, i, magnitude)
             M_out = np.asarray(M_out, dtype=np.float32)
@@ -121,7 +134,7 @@ def main():
                 
         for i in range(num_output):
             M_noisy \
-            = lib_generation.get_Mahalanobis_score_adv(model, test_noisy_data, test_label, \
+            = lib_generation.get_Mahalanobis_score_adv(model, vae, test_noisy_data, test_label, \
                                                        args.num_classes, args.outf, args.net_type, \
                                                        sample_mean, precision, i, magnitude)
             M_noisy = np.asarray(M_noisy, dtype=np.float32)

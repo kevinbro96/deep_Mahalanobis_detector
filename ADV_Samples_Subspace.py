@@ -24,6 +24,7 @@ parser.add_argument('--num_classes', type=int, default=10, help='the # of classe
 parser.add_argument('--net_type', required=True, help='resnet | densenet')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
 parser.add_argument('--adv_type', required=True, help='FGSM | BIM | DeepFool | CWL2')
+parser.add_argument('--vae_path', default='./data/emb2048/model_epoch172.pth', help='folder to output results')
 args = parser.parse_args()
 print(args)
 
