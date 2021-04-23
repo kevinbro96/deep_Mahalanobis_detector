@@ -65,3 +65,27 @@ python ADV_Generate_LID_Mahalanobis.py --dataset cifar10 --net_type resnet --adv
 # model: ResNet
 python ADV_Regression.py --net_type resnet
 ```
+## Detecting Adversarial Samples (Disentangle detector)
+### 0. Generate adversarial samples:
+```
+# model: ResNet, in-distribution: CIFAR-10, adversarial attack: FGSM  gpu: 0
+python ADV_Samples.py --dataset cifar10 --net_type resnet --adv_type BIM --gpu 0
+```
+
+### 1. Analysis Distribution of Delta:
+```
+# model: ResNet, in-distribution: CIFAR-10, adversarial attack: FGSM  gpu: 0
+python ADV_Delta_Analysis.py --dataset cifar10 --net_type resnet --adv_type BIM --gpu 0 --analyze_type adv --outf ./adv_white/
+```
+
+### 2. Train simple detectors:
+```
+# model: ResNet
+python ADV_Disen.py --dataset cifar10 --net_type resnet --adv_type BIM --gpu 0 --outf ./data/adv_white/ --detector_path ./data/2class/0029.ckpt.pth
+```
+### 3. Generate white-attack adversarial samples
+```
+# model: ResNet, in-distribution: CIFAR-10, adversarial attack: FGSM  gpu: 0
+python ADV_White_Sample.py --dataset cifar10 --net_type resnet --adv_type BIM --gpu 0
+```
+

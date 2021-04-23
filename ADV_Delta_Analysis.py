@@ -29,10 +29,7 @@ def main():
     print('load model: ' + args.net_type)
     pre_trained_net = './pre_trained/' + args.net_type + '_' + args.dataset + '.pth'
     args.outf = args.outf + args.net_type + '_' + args.dataset + '/'
-    model = models.ResNet50(num_c=args.num_classes)
-    model.cuda()
-    model = nn.DataParallel(model)
-    model.load_state_dict(torch.load(pre_trained_net, map_location="cuda:" + str(args.gpu)))
+
     vae = models.CVAE(d=32, z=2048)
     vae = nn.DataParallel(vae)
     save_model = torch.load(args.vae_path)
@@ -41,6 +38,8 @@ def main():
     print(state_dict.keys())
     model_dict.update(state_dict)
     vae.load_state_dict(model_dict)
+    vae.cuda()
+    vae.eval()
 
 
     print('load target data: ', args.dataset)
@@ -65,11 +64,14 @@ def main():
 
         total += args.batch_size
         inputs = Variable(data)
+        inputs = inputs.cuda()
 
         if args.analyze_type == 'adv':
             adv_inputs = Variable(adv_data)
+            adv_inputs = adv_inputs.cuda()
         else:
             adv_inputs = Variable(noisy_data)
+            adv_inputs = adv_inputs.cuda()
 
         inputs_i = vae(inputs)
         inputs_d = inputs - inputs_i

@@ -29,7 +29,7 @@ print(args)
 
 def main():
     # set the path to pre-trained model and output
-    pre_trained_net = './pre_trained/' + args.net_type + '_' + args.dataset + '.pth'
+    pre_trained_net = './Pretrain_Subspace/' + args.net_type + '_' + args.dataset + '.pth'
     args.outf = args.outf + args.net_type + '_' + args.dataset + '/'
     if os.path.isdir(args.outf) == False:
         os.makedirs(args.outf)
@@ -137,7 +137,18 @@ def main():
     model = torch.load(pre_trained_net)
     model.cuda()
     print('load model: ' + args.net_type)
-    
+
+    vae = models.CVAE(d=32, z=2048)
+    vae = nn.DataParallel(vae)
+    save_model = torch.load(args.vae_path)
+    model_dict = vae.state_dict()
+    state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
+    print(state_dict.keys())
+    model_dict.update(state_dict)
+    vae.load_state_dict(model_dict)
+    vae.cuda()
+    vae.eval()
+
     # load dataset
     print('load target data: ', args.dataset)
     train_loader, test_loader = data_loader.getTargetDataSet(args.dataset, args.batch_size, in_transform, args.dataroot)
@@ -160,7 +171,7 @@ def main():
     for data, target in test_loader:
         data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
-        output = model(data)
+        output = model( data - vae(data))
 
         # compute the accuracy
         pred = output.data.max(1)[1]
@@ -182,7 +193,7 @@ def main():
         # generate adversarial
         model.zero_grad()
         inputs = Variable(data.data, requires_grad=True)
-        output = model(inputs)
+        output = model(inputs-vae(inputs))
         loss = criterion(output, target)
         loss.backward()
 
@@ -210,7 +221,7 @@ def main():
                 inputs = torch.add(inputs.data, gradient, alpha=adv_noise)
                 inputs = torch.clamp(inputs, min_pixel, max_pixel)
                 inputs = Variable(inputs, requires_grad=True)
-                output = model(inputs)
+                output = model(inputs-vae(inputs))
                 loss = criterion(output, target)
                 loss.backward()
                 gradient = torch.sign(inputs.grad.data)
@@ -252,13 +263,13 @@ def main():
         else:
             adv_data_tot = torch.cat((adv_data_tot, adv_data.clone().cpu()),0)
         with torch.no_grad():
-            output = model(Variable(adv_data))
+            output = model(Variable(adv_data)-vae(Variable(adv_data)))
         # compute the accuracy
         pred = output.data.max(1)[1]
         equal_flag_adv = pred.eq(target.data).cpu()
         adv_correct += equal_flag_adv.sum()
         with torch.no_grad():
-            output = model(Variable(noisy_data))
+            output = model(Variable(noisy_data)-vae(Variable(noisy_data)))
         # compute the accuracy
         pred = output.data.max(1)[1]
         equal_flag_noise = pred.eq(target.data).cpu()
@@ -309,7 +320,7 @@ def main():
         # generate adversarial
         model.zero_grad()
         inputs = Variable(data.data, requires_grad=True)
-        output = model(inputs)
+        output = model(inputs-vae(inputs))
         loss = criterion(output, target)
         loss.backward()
 
@@ -337,7 +348,7 @@ def main():
                 inputs = torch.add(inputs.data, gradient, alpha=adv_noise)
                 inputs = torch.clamp(inputs, min_pixel, max_pixel)
                 inputs = Variable(inputs, requires_grad=True)
-                output = model(inputs)
+                output = model(inputs-vae(inputs))
                 loss = criterion(output, target)
                 loss.backward()
                 gradient = torch.sign(inputs.grad.data)
@@ -379,7 +390,7 @@ def main():
             adv_data_tot = torch.cat((adv_data_tot, adv_data.clone().cpu()), 0)
 
         total += data.size(0)
-
+    pdb.set_trace()
     torch.save(clean_data_tot, '%s/train_clean_data_%s_%s_%s.pth' % (args.outf, args.net_type, args.dataset, args.adv_type))
     torch.save(adv_data_tot, '%s/train_adv_data_%s_%s_%s.pth' % (args.outf, args.net_type, args.dataset, args.adv_type))
     torch.save(noisy_data_tot, '%s/train_noisy_data_%s_%s_%s.pth' % (args.outf, args.net_type, args.dataset, args.adv_type))

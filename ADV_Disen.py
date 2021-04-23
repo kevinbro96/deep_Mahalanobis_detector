@@ -16,6 +16,7 @@ import random
 import torchvision
 import torchvision.transforms as transforms
 import calculate_log as callog
+import sys
 parser = argparse.ArgumentParser(description='PyTorch code: Mahalanobis detector')
 parser.add_argument('--lr', default=0.1, type=float, help='learning_rate')
 parser.add_argument('--lr_schedule', type=str, required=False,
@@ -32,9 +33,10 @@ parser.add_argument('--net_type', required=True, help='resnet | densenet')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
 parser.add_argument('--adv_type', required=True, help='FGSM | BIM | DeepFool | CWL2')
 parser.add_argument('--vae_path', default='./data/emb2048/model_epoch172.pth', help='folder to output results')
-parser.add_argument('--analyze_type', required=True, help='adv | noise')
 parser.add_argument('--log_dir', type=str, default='data/logs')
 parser.add_argument('--seed', default=666, type=int, help='seed')
+parser.add_argument('--detector_path', default=None, help='folder to output results')
+
 args = parser.parse_args()
 wandb.init(config=args)
 
@@ -65,6 +67,7 @@ def main():
     print(state_dict.keys())
     model_dict.update(state_dict)
     vae.load_state_dict(model_dict)
+    vae.cuda()
     vae.eval()
 
     if args.lr is None:
@@ -87,19 +90,7 @@ def main():
     testset = torch.cat((test_clean_data, test_adv_data, test_noisy_data))
     testlabel = torch.cat((torch.zeros(test_clean_data.size(0)), torch.ones(test_adv_data.size(0)), torch.zeros(test_noisy_data.size(0))))
 
-    train_clean_data = torch.load(args.outf + 'train_clean_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
-    train_adv_data = torch.load(args.outf + 'train_adv_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
-    train_noisy_data = torch.load(args.outf + 'train_noisy_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
-    trainset = torch.cat((train_clean_data, train_adv_data, train_noisy_data))
-    trainlabel = torch.cat((torch.zeros(train_clean_data.size(0)), torch.ones(train_adv_data.size(0)), torch.zeros(train_noisy_data.size(0))))
-
-    shuffle = torch.randperm(trainlabel.size(0))
-    trainset = trainset[shuffle]
-    trainlabel = trainlabel[shuffle]
-
-    print('start to train: ')
-
-    def test(epoch, testset, testlabel, model, outf):
+    def test( testset, testlabel, model, outf):
 
         total = 0
         output = []
@@ -143,6 +134,25 @@ def main():
             wandb.log({'AUIN': 100. * results['TMP']['AUIN']})
             wandb.log({'AUOUT': 100. * results['TMP']['AUOUT']})
 
+    if args.detector_path is not None:
+        model = torch.load(args.detector_path)
+        model.cuda()
+        model.eval()
+        test(testset, testlabel, model, log_dir)
+        sys.exit(0)
+
+    print('start to train: ')
+
+    train_clean_data = torch.load(args.outf + 'train_clean_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
+    train_adv_data = torch.load(args.outf + 'train_adv_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
+    train_noisy_data = torch.load(args.outf + 'train_noisy_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
+    trainset = torch.cat((train_clean_data, train_adv_data, train_noisy_data))
+    trainlabel = torch.cat((torch.zeros(train_clean_data.size(0)), torch.ones(train_adv_data.size(0)), torch.zeros(train_noisy_data.size(0))))
+
+    shuffle = torch.randperm(trainlabel.size(0))
+    trainset = trainset[shuffle]
+    trainlabel = trainlabel[shuffle]
+
     start_epoch, iteration = 0, 0
     for epoch in range(start_epoch, args.num_epochs):
         total = 0
@@ -160,7 +170,6 @@ def main():
             data = trainset[total : total + args.batch_size].cuda()
             label = trainlabel[total : total + args.batch_size].cuda()
 
-            #labels = torch.tensor(label, dtype=torch.long)
             inputs = Variable(data, requires_grad=False)
             labels = Variable(label, requires_grad=False)
 
@@ -188,13 +197,13 @@ def main():
         if epoch % 10 == 0:
             print('BEGIN VALIDATION')
             model.eval()
-            test(epoch, testset, testlabel, model, log_dir)
+            test(testset, testlabel, model, log_dir)
             checkpoint_fname = os.path.join(log_dir, f'{epoch:04d}.ckpt.pth')
             torch.save(model, checkpoint_fname)
 
     print('BEGIN VALIDATION')
     model.eval()
-    test(epoch, testset, testlabel, model, log_dir)
+    test(testset, testlabel, model, log_dir)
     checkpoint_fname = os.path.join(log_dir, f'{epoch:04d}.ckpt.pth')
     torch.save(model, checkpoint_fname)
 

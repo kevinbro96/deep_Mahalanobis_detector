@@ -314,7 +314,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
             loss = torch.clamp((w - input_var).abs() - bound, min=0).sum()
         else:
             raise ValueError('Unsupported loss: %s' % loss_str)
-        recons_loss = loss.data[0]
+        recons_loss = loss.item()
         w_data = w.data
         if crop_frac < 1 and i % 3 == 1:
             w_cropped = torch.zeros(
@@ -340,7 +340,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
         for j in range(output.size(0)):
             loss += weight * torch.clamp(
                 output[j][target[j]] - output[j][argmax[j]] + kappa, min=0)
-        adv_loss = loss.data[0] - recons_loss
+        adv_loss = loss.item() - recons_loss
         if is_gpu:
             loss = loss.cuda()
         loss.backward()
@@ -370,7 +370,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
                         minimize_tv.tv_dx(w_cpu[j, k] - input_np[j, k], p))
                     w.grad.data[j, k].add_(grad.float())
         optimizer.step()
-        total_loss = loss.data.cpu()[0] + tv_loss
+        total_loss = loss.item()+ tv_loss
         # w.data = utils.img_to_tensor(utils.transform_img(w.data), scale=False)
         output_vec = w.data
         preds = util.get_labels(model, output_vec)
