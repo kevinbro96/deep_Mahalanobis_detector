@@ -110,11 +110,12 @@ def MSSIM(x, y, window_size=16, stride=4):
 
 
 # forwards input through model to get probabilities
-def get_probs(model, imgs, output_prob=False):
+def get_probs(model, vae, imgs, output_prob=False):
     softmax = torch.nn.Softmax(1)
     # probs = torch.zeros(imgs.size(0), n_classes)
-    imgsvar = torch.autograd.Variable(imgs.squeeze(), volatile=True)
-    output = model(imgsvar)
+    imgsvar = torch.autograd.Variable(imgs.squeeze())
+    with torch.no_grad():
+        output = model(imgsvar - vae(imgsvar))
     if output_prob:
         probs = output.data.cpu()
     else:
@@ -124,7 +125,7 @@ def get_probs(model, imgs, output_prob=False):
 
 
 # calls get_probs to get predictions
-def get_labels(model, input, output_prob=False):
-    probs = get_probs(model, input, output_prob)
+def get_labels(model, vae, input, output_prob=False):
+    probs = get_probs(model, vae, input, output_prob)
     _, label = probs.max(1)
     return label.squeeze()

@@ -164,7 +164,7 @@ def ifgs(model, input, target, max_iter=10, step_size=0.01, train_mode=False,
 
 
 # computes DeepFool for a single input image
-def deepfool_single(model, imgs, target, n_classes, train_mode, max_iter=50,
+def deepfool_single(model, vae, imgs, target, n_classes, train_mode, max_iter=50,
                     step_size=0.1, batch_size=10, labels=None, verbose=False):
     is_gpu = next(model.parameters()).is_cuda
     if train_mode:
@@ -182,12 +182,13 @@ def deepfool_single(model, imgs, target, n_classes, train_mode, max_iter=50,
         imgs_var_in = imgs_var2.expand(1, imgs_var2.size(0), imgs_var2.size(1),
                                         imgs_var2.size(2))
         grad_input = imgs_var_in.repeat(n_classes, 1, 1, 1)
-        output = model(imgs_var_in).clone()
+        output = model(imgs_var_in-vae(imgs_var_in)).clone()
         model.zero_grad()
+        vae.zero_grad()
         idx = torch.arange(0, n_classes).long()
         imgs_var_batch = torch.autograd.Variable(
                 imgs_var_in.data.repeat(n_classes, 1, 1, 1), requires_grad=True)
-        output_batch = model(imgs_var_batch)
+        output_batch = model(imgs_var_batch-vae(imgs_var_batch))
         if is_gpu:
             _idx = idx.clone().cuda()
         else:
@@ -204,17 +205,17 @@ def deepfool_single(model, imgs, target, n_classes, train_mode, max_iter=50,
         min_w = w[min_idx[0]]
         min_norm = w_norm[min_idx[0]].data
         min_ratio = min_ratio[0]
-        min_norm = min_norm[0]
+        min_norm = min_norm.item()
         ri = min_ratio / min_norm * step_size * min_w
         imgs_var2 = imgs_var2.add(ri)
         r = r.add(ri.data)
         imgs_var_in = imgs_var2.clone().expand(1, imgs_var2.size(0),
                                                 imgs_var2.size(1), imgs_var2.size(2))
-        output2 = model.forward(imgs_var_in).clone()
+        output2 = model.forward(imgs_var_in-vae(imgs_var_in)).clone()
         _, pred2 = output2.data.cpu().max(1)
-        pred2 = pred2.squeeze()[0]
+        pred2 = pred2.squeeze().item()
         diff = torch.norm(imgs_var - imgs_var2) / torch.norm(imgs_var)
-        diff = diff.data[0]
+        diff = diff.item()
         if verbose:
             print('iteration ' + str(m + 1) +
                   ': perturbation norm ratio = ' + str(diff))
@@ -230,14 +231,14 @@ def deepfool_single(model, imgs, target, n_classes, train_mode, max_iter=50,
 
 
 # Implements DeepFool for a batch of examples
-def deepfool(model, input, target, n_classes, train_mode=False, max_iter=5,
+def deepfool(model, vae, input, target, n_classes, train_mode=False, max_iter=5,
              step_size=0.1, batch_size=25, labels=None):
-    pred = util.get_labels(model, input, batch_size)
+    pred = util.get_labels(model, vae, input, batch_size)
     status = torch.zeros(input.size(0)).long()
     r = torch.zeros(input.size())
     for i in range(input.size(0)):
         status[i], r[i] = deepfool_single(
-            model, input[i], target[i], n_classes, train_mode,
+            model, vae, input[i], target[i], n_classes, train_mode,
             max_iter, step_size, batch_size, labels)
     status = 2 * status - 1
     status[pred.ne(target)] = 0
@@ -277,7 +278,7 @@ def universal(model, input, target, n_classes, max_val=0.1, train_mode=False,
 # Implements Carlini-Wagner's L2 and Linf attacks
 # Carlini and Wagner - Towards evaluating the robustness of neural networks
 # Modified with TV minimization, random cropping, and random pixel dropping
-def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
+def cw(model, vae, input, target, weight, loss_str, bound=0, tv_weight=0,
        max_iter=100, step_size=0.01, kappa=0, p=2, crop_frac=1.0, drop_rate=0.0,
        train_mode=False, verbose=False):
     is_gpu = next(model.parameters()).is_cuda
@@ -285,7 +286,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
         model.train()
     else:
         model.eval()
-    pred = util.get_labels(model, input)
+    pred = util.get_labels(model, vae, input)
     corr = pred.eq(target)
     w = torch.autograd.Variable(input, requires_grad=True)
     best_w = torch.Tensor(input.size())
@@ -298,7 +299,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
     scale_up = trans.Resize((w.size(2), w.size(3)))
     scale_down = trans.Resize((int(crop_frac * w.size(2)), int(crop_frac * w.size(3))))
     to_tensor = trans.ToTensor()
-    probs = util.get_probs(model, input)
+    probs = util.get_probs(model, vae, input)
     _, top2 = probs.topk(2, 1)
     argmax = top2[:, 0]
     for j in range(top2.size(0)):
@@ -308,6 +309,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
         if i > 0:
             w.grad.data.fill_(0)
         model.zero_grad()
+        vae.zero_grad()
         if loss_str == 'l2':
             loss = torch.pow(w - input_var, 2).sum()
         elif loss_str == 'linf':
@@ -334,9 +336,9 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
         else:
             w_in = torch.autograd.Variable(w_data, requires_grad=True)
         if drop_rate == 0 and i % 3 == 2:
-            output = model.forward(w_in)
+            output = model.forward(w_in-vae(w_in))
         else:
-            output = model.forward(torch.nn.Dropout(p=drop_rate).forward(w_in))
+            output = model.forward(torch.nn.Dropout(p=drop_rate).forward(w_in-vae(w_in)))
         for j in range(output.size(0)):
             loss += weight * torch.clamp(
                 output[j][target[j]] - output[j][argmax[j]] + kappa, min=0)
@@ -373,7 +375,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
         total_loss = loss.item()+ tv_loss
         # w.data = utils.img_to_tensor(utils.transform_img(w.data), scale=False)
         output_vec = w.data
-        preds = util.get_labels(model, output_vec)
+        preds = util.get_labels(model, vae, output_vec)
         output_vec = output_vec.view(output_vec.size(0), -1)
         diff = (input_vec - output_vec).norm(2, 1).squeeze()
         diff = diff.div(input_vec.norm(2, 1).squeeze())
@@ -387,7 +389,7 @@ def cw(model, input, target, weight, loss_str, bound=0, tv_weight=0,
         if total_loss < best_loss:
             best_loss = total_loss
             best_w = w.data.clone()
-    pred_xp = util.get_labels(model, best_w)
+    pred_xp = util.get_labels(model, vae, best_w)
     status = torch.zeros(input.size(0)).long()
     status[corr] = 2 * pred[corr].ne(pred_xp[corr]).long() - 1
     return (status, best_w)

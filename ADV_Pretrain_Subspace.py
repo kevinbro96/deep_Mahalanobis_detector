@@ -30,11 +30,11 @@ parser.add_argument('--num_epochs', type=int, required=False,
                     help='number of epochs trained')
 parser.add_argument('--seed', default=666, type=int, help='seed')
 parser.add_argument('--dataset', default='cifar10', type=str, help='dataset = [cifar10/mnist]')
-parser.add_argument('--log_dir', type=str, default='data/logs')
+parser.add_argument('--log_dir', type=str, default='data/95.53_sgd_epoch300')
 parser.add_argument('--batch_size', type=int, default=128,
                     help='number of examples/minibatch')
 parser.add_argument('--num_classes', type=int, default=10, help='the # of classes')
-parser.add_argument('--vae_path', default='./data/emb2048/model_epoch172.pth', help='folder to output results')
+parser.add_argument('--vae_path', default='./data/95.53/model_epoch272.pth', help='folder to output results')
 
 args = parser.parse_args()
 wandb.init(config=args)
@@ -78,7 +78,7 @@ test_loader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False
 
 # Model
 print('\n[Phase 2] : Model setup')
-model = models.ResNet50(num_c=args.num_classes)
+model = models.Wide_ResNet(28, 10, 0.3, 10)
 
 if use_cuda:
     model.cuda()
@@ -101,9 +101,9 @@ criterion = nn.CrossEntropyLoss()
 if args.lr is None:
     args.lr = 1e-1
 if args.lr_schedule is None:
-    args.lr_schedule = '75,90,100'
+    args.lr_schedule = '150,225'
 if args.num_epochs is None:
-    args.num_epochs = 100
+    args.num_epochs = 300
 lr_drop_epochs = [int(epoch_str) for epoch_str in
                       args.lr_schedule.split(',')]
 optimizer = optim.SGD(model.parameters(),

@@ -11,9 +11,10 @@ import calculate_log as callog
 import models
 import os
 import lib_generation
-
+from torch import nn
 from torchvision import transforms
 from torch.autograd import Variable
+import pdb
 
 parser = argparse.ArgumentParser(description='PyTorch code: Mahalanobis detector')
 parser.add_argument('--batch_size', type=int, default=200, metavar='N', help='batch size for data loader')
@@ -23,14 +24,14 @@ parser.add_argument('--outf', default='./adv_output/', help='folder to output re
 parser.add_argument('--num_classes', type=int, default=10, help='the # of classes')
 parser.add_argument('--net_type', required=True, help='resnet | densenet')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
-parser.add_argument('--adv_type', required=True, help='FGSM | BIM | DeepFool | CWL2')
-parser.add_argument('--vae_path', default='./data/emb2048/model_epoch172.pth', help='folder to output results')
+parser.add_argument('--adv_type', required=True, help='FGSM | BIM | PGD | CW')
+parser.add_argument('--vae_path', default='./data/96.32/model_epoch252.pth', help='folder to output results')
 args = parser.parse_args()
 print(args)
 
 def main():
     # set the path to pre-trained model and output
-    pre_trained_net = './pre_trained/' + args.net_type + '_' + args.dataset + '.pth'
+    pre_trained_net = './Pretrain_Subspace/' + args.net_type + '_' + args.dataset + '.pth'
     args.outf = args.outf + args.net_type + '_' + args.dataset + '/'
     if os.path.isdir(args.outf) == False:
         os.mkdir(args.outf)
@@ -51,14 +52,21 @@ def main():
     elif args.net_type == 'resnet':
         # model = models.ResNet34(num_c=args.num_classes)
         # model.load_state_dict(torch.load(pre_trained_net, map_location = "cuda:" + str(args.gpu)))
-        in_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),])
+        in_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),])
 
-    model = torch.load(pre_trained_net)
+    model = models.Wide_ResNet(28, 10, 0.3, 10)
+    model = nn.DataParallel(model)
+    model_dict = model.state_dict()
+    save_model = torch.load(args.vae_path)
+    state_dict = {k.replace('classifier.',''): v for k, v in save_model.items() if k.replace('classifier.','') in model_dict.keys()}
+    print(state_dict.keys())
+    model_dict.update(state_dict)
+    model.load_state_dict(model_dict)
     model.cuda()
+    model.eval()
     print('load model: ' + args.net_type)
     vae = models.CVAE(d=32, z=2048)
     vae = nn.DataParallel(vae)
-    save_model = torch.load(args.vae_path)
     model_dict = vae.state_dict()
     state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
     print(state_dict.keys())
@@ -79,7 +87,7 @@ def main():
     model.eval()
     temp_x = torch.rand(2,3,32,32).cuda()
     temp_x = Variable(temp_x)
-    temp_list = model.feature_list(temp_x-vae(temp_x))[1]
+    temp_list = model.module.feature_list(temp_x-vae(temp_x))[1]
     num_output = len(temp_list)
     feature_list = np.empty(num_output)
     count = 0
@@ -89,7 +97,7 @@ def main():
         
     print('get sample mean and covariance')
     sample_mean, precision = lib_generation.sample_estimator(model, vae, args.num_classes, feature_list, train_loader)
-    
+
     print('get LID scores')
     LID, LID_adv, LID_noisy \
     = lib_generation.get_LID(model, vae, test_clean_data, test_adv_data, test_noisy_data, test_label, num_output)
@@ -105,7 +113,7 @@ def main():
         LID_data = np.concatenate((LID_data, LID_labels), axis=1)
         np.save(file_name, LID_data)
         list_counter += 1
-    
+
     print('get Mahalanobis scores')
     m_list = [0.0, 0.01, 0.005, 0.002, 0.0014, 0.001, 0.0005]
     for magnitude in m_list:
@@ -131,7 +139,7 @@ def main():
                 Mahalanobis_out = M_out.reshape((M_out.shape[0], -1))
             else:
                 Mahalanobis_out = np.concatenate((Mahalanobis_out, M_out.reshape((M_out.shape[0], -1))), axis=1)
-                
+
         for i in range(num_output):
             M_noisy \
             = lib_generation.get_Mahalanobis_score_adv(model, vae, test_noisy_data, test_label, \
@@ -141,7 +149,7 @@ def main():
             if i == 0:
                 Mahalanobis_noisy = M_noisy.reshape((M_noisy.shape[0], -1))
             else:
-                Mahalanobis_noisy = np.concatenate((Mahalanobis_noisy, M_noisy.reshape((M_noisy.shape[0], -1))), axis=1)            
+                Mahalanobis_noisy = np.concatenate((Mahalanobis_noisy, M_noisy.reshape((M_noisy.shape[0], -1))), axis=1)
         Mahalanobis_in = np.asarray(Mahalanobis_in, dtype=np.float32)
         Mahalanobis_out = np.asarray(Mahalanobis_out, dtype=np.float32)
         Mahalanobis_noisy = np.asarray(Mahalanobis_noisy, dtype=np.float32)
@@ -149,9 +157,46 @@ def main():
 
         Mahalanobis_data, Mahalanobis_labels = lib_generation.merge_and_generate_labels(Mahalanobis_out, Mahalanobis_pos)
         file_name = os.path.join(args.outf, 'Mahalanobis_%s_%s_%s.npy' % (str(magnitude), args.dataset, args.adv_type))
-        
+
         Mahalanobis_data = np.concatenate((Mahalanobis_data, Mahalanobis_labels), axis=1)
         np.save(file_name, Mahalanobis_data)
+
+    print('get KD scores')
+    band_list = [100, 500, 1000]
+    train_example = lib_generation.KD_extracter(model, vae, args.num_classes, feature_list, train_loader) # 60000 x 2048
+    for band in band_list:
+        print('\nBand: ' + str(band))
+        K_in \
+            = lib_generation.get_KD(model, vae, test_clean_data, test_label, \
+                                                       train_example, -1, band)
+        K_in = np.asarray(K_in, dtype=np.float32)
+        KernelDesity_in = K_in.reshape((K_in.shape[0], -1))
+
+
+        K_out \
+            = lib_generation.get_KD(model, vae, test_adv_data, test_label, \
+                                                       train_example, -1, band)
+        K_out = np.asarray(K_out, dtype=np.float32)
+        KernelDesity_out = K_out.reshape((K_out.shape[0], -1))
+
+
+        K_noisy \
+            = lib_generation.get_KD(model, vae, test_noisy_data, test_label, \
+                                                       train_example, -1, band)
+        K_noisy = np.asarray(K_noisy, dtype=np.float32)
+        KernelDesity_noisy = K_noisy.reshape((K_noisy.shape[0], -1))
+
+        KernelDesity_in = np.asarray(KernelDesity_in, dtype=np.float32)
+        KernelDesity_out = np.asarray(KernelDesity_out, dtype=np.float32)
+        KernelDesity_noisy = np.asarray(KernelDesity_noisy, dtype=np.float32)
+        KernelDesity_pos = np.concatenate((KernelDesity_in, KernelDesity_noisy))
+
+        KernelDesity_data, KernelDesity_labels = lib_generation.merge_and_generate_labels(KernelDesity_out,
+                                                                                        KernelDesity_pos)
+        file_name = os.path.join(args.outf, 'KernelDensity_%s_%s_%s.npy' % (str(band), args.dataset, args.adv_type))
+
+        KernelDesity_data = np.concatenate((KernelDesity_data, KernelDesity_labels), axis=1)
+        np.save(file_name, KernelDesity_data)
 
 if __name__ == '__main__':
     main()

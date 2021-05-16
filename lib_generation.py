@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from torch.autograd import Variable
 from scipy.spatial.distance import pdist, cdist, squareform
-
+import pdb
 # lid of a batch of query points X
 def mle_batch(data, batch, k):
     '''
@@ -22,7 +22,6 @@ def mle_batch(data, batch, k):
     a = np.apply_along_axis(np.sort, axis=1, arr=a)[:,1:k+1]
     a = np.apply_along_axis(f, axis=1, arr=a)
     return a
-
 # this function is from https://github.com/xingjunm/lid_adversarial_subspace_detection
 def merge_and_generate_labels(X_pos, X_neg):
     """
@@ -53,6 +52,7 @@ def sample_estimator(model, vae, num_classes, feature_list, train_loader):
     model.eval()
     group_lasso = sklearn.covariance.EmpiricalCovariance(assume_centered=False)
     correct, total = 0, 0
+
     num_output = len(feature_list)
     num_sample_per_class = np.empty(num_classes)
     num_sample_per_class.fill(0)
@@ -67,7 +67,7 @@ def sample_estimator(model, vae, num_classes, feature_list, train_loader):
         total += data.size(0)
         data = data.cuda()
         data = Variable(data)
-        output, out_features = model.feature_list(data - vae(data))
+        output, out_features = model.module.feature_list(data - vae(data))
         
         # get hidden features
         for i in range(num_output):
@@ -143,7 +143,7 @@ def get_Mahalanobis_score(model, test_loader, num_classes, outf, out_flag, net_t
         data, target = data.cuda(), target.cuda()
         data, target = Variable(data, requires_grad = True), Variable(target)
         
-        out_features = model.intermediate_forward(data, layer_index)
+        out_features = model.module.intermediate_forward(data, layer_index)
         out_features = out_features.view(out_features.size(0), out_features.size(1), -1)
         out_features = torch.mean(out_features, 2)
         
@@ -178,7 +178,7 @@ def get_Mahalanobis_score(model, test_loader, num_classes, outf, out_flag, net_t
             gradient.index_copy_(1, torch.LongTensor([2]).cuda(), gradient.index_select(1, torch.LongTensor([2]).cuda()) / (0.2010))
         tempInputs = torch.add(data.data, -magnitude, gradient)
         with torch.no_grad():
-            noise_out_features = model.intermediate_forward(Variable(tempInputs), layer_index)
+            noise_out_features = model.module.intermediate_forward(Variable(tempInputs), layer_index)
         noise_out_features = noise_out_features.view(noise_out_features.size(0), noise_out_features.size(1), -1)
         noise_out_features = torch.mean(noise_out_features, 2)
         noise_gaussian_score = 0
@@ -275,7 +275,7 @@ def get_Mahalanobis_score_adv(model, vae, test_data, test_label, num_classes, ou
         total += batch_size
         data, target = Variable(data, requires_grad = True), Variable(target)
         
-        out_features = model.intermediate_forward(data-vae(data), layer_index)
+        out_features = model.module.intermediate_forward(data-vae(data), layer_index)
         out_features = out_features.view(out_features.size(0), out_features.size(1), -1)
         out_features = torch.mean(out_features, 2)
         
@@ -310,7 +310,7 @@ def get_Mahalanobis_score_adv(model, vae, test_data, test_label, num_classes, ou
         tempInputs = torch.add(data.data, -magnitude, gradient)
 
         with torch.no_grad():
-            noise_out_features = model.intermediate_forward(Variable(tempInputs)-vae(Variable(tempInputs)), layer_index)
+            noise_out_features = model.module.intermediate_forward(Variable(tempInputs)-vae(Variable(tempInputs)), layer_index)
         noise_out_features = noise_out_features.view(noise_out_features.size(0), noise_out_features.size(1), -1)
         noise_out_features = torch.mean(noise_out_features, 2)
         noise_gaussian_score = 0
@@ -353,21 +353,21 @@ def get_LID(model, vae, test_clean_data, test_adv_data, test_noisy_data, test_la
         total += batch_size
         data, target = Variable(data), Variable(target)
         
-        output, out_features = model.feature_list(data - vae(data))
+        output, out_features = model.module.feature_list(data - vae(data))
         X_act = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
             out_features[i] = torch.mean(out_features[i].data, 2)
             X_act.append(np.asarray(out_features[i].cpu(), dtype=np.float32).reshape((out_features[i].size(0), -1)))
         with torch.no_grad():
-            output, out_features = model.feature_list(Variable(adv_data)-vae(Variable(adv_data)))
+            output, out_features = model.module.feature_list(Variable(adv_data)-vae(Variable(adv_data)))
         X_act_adv = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
             out_features[i] = torch.mean(out_features[i].data, 2)
             X_act_adv.append(np.asarray(out_features[i].cpu(), dtype=np.float32).reshape((out_features[i].size(0), -1)))
         with torch.no_grad():
-            output, out_features = model.feature_list(Variable(noisy_data)-vae(Variable(noisy_data)))
+            output, out_features = model.module.feature_list(Variable(noisy_data)-vae(Variable(noisy_data)))
         X_act_noisy = []
         for i in range(num_output):
             out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
@@ -408,3 +408,93 @@ def get_LID(model, vae, test_clean_data, test_adv_data, test_noisy_data, test_la
             list_counter += 1
             
     return LID, LID_adv, LID_noisy
+
+
+def get_KD(model, vae, test_data, test_label,  train_feature,
+                              layer_index, band):
+    '''
+    Compute the proposed Mahalanobis confidence score on adversarial samples
+    return: Mahalanobis score from layer_index
+    '''
+    model.eval()
+    vae.eval()
+    KernelDensity = []
+    batch_size = 100
+    total = 0
+    train_feature = train_feature[layer_index]  # 10,5000,c
+    for data_index in range(int(np.floor(test_data.size(0) / batch_size))):
+        target = test_label[total: total + batch_size].cuda()
+        data = test_data[total: total + batch_size].cuda()
+        total += batch_size
+        data, target = Variable(data, requires_grad=True), Variable(target)
+
+        out, out_features = model.module.feature_list(data - vae(data))
+        out_features = out_features[layer_index]
+        out_features = out_features.view(out_features.size(0), out_features.size(1), -1)
+        out_features = torch.mean(out_features, 2) #100*c
+        pred = out.data.max(1)[1]
+        train_features = []
+        for i in range(batch_size):
+            train_features.append(train_feature[target[i]].unsqueeze(0))
+        train_features = torch.cat(train_features, dim=0) # 100,5000,c
+        out_features = out_features.unsqueeze(1) #100,1,c
+
+        l2 = torch.pow(torch.norm((out_features - train_features),dim=2) ,2)  #100,5000
+        kd = - torch.mean(torch.exp(-l2/(band*band)), dim=1)  #100
+        KernelDensity.extend(kd.cpu().detach().numpy())
+
+    return KernelDensity
+
+def KD_extracter(model, vae, num_classes, feature_list, train_loader):
+    """
+    compute sample mean and precision (inverse of covariance)
+    return: sample_class_mean: list of class mean
+             precision: list of precisions
+    """
+    import sklearn.covariance
+
+    model.eval()
+    correct, total = 0, 0
+    num_output = len(feature_list)
+    num_sample_per_class = np.empty(num_classes)
+    num_sample_per_class.fill(0)
+    list_features = []
+    for i in range(num_output):
+        temp_list = []
+        for j in range(num_classes):
+            temp_list.append(0)
+        list_features.append(temp_list)
+
+    for data, target in train_loader:
+        total += data.size(0)
+        data = data.cuda()
+        data = Variable(data)
+        output, out_features = model.module.feature_list(data - vae(data))
+
+        # get hidden features
+        for i in range(num_output):
+            out_features[i] = out_features[i].view(out_features[i].size(0), out_features[i].size(1), -1)
+            out_features[i] = torch.mean(out_features[i].data, 2)
+
+        # compute the accuracy
+        pred = output.data.max(1)[1]
+        equal_flag = pred.eq(target.cuda()).cpu()
+        correct += equal_flag.sum()
+
+        # construct the sample matrix
+        for i in range(data.size(0)):
+            label = target[i]
+            if num_sample_per_class[label] == 0:
+                out_count = 0
+                for out in out_features:
+                    list_features[out_count][label] = out[i].view(1, -1)
+                    out_count += 1
+            else:
+                out_count = 0
+                for out in out_features:
+                    list_features[out_count][label] \
+                        = torch.cat((list_features[out_count][label], out[i].view(1, -1)), 0)
+                    out_count += 1
+            num_sample_per_class[label] += 1
+
+    return list_features

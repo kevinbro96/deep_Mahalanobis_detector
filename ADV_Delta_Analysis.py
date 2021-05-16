@@ -43,9 +43,9 @@ def main():
 
 
     print('load target data: ', args.dataset)
-    test_clean_data = torch.load(args.outf + 'test_clean_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
-    test_adv_data = torch.load(args.outf + 'test_adv_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
-    test_noisy_data = torch.load(args.outf + 'test_noisy_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
+    test_clean_data = torch.load(args.outf + 'clean_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
+    test_adv_data = torch.load(args.outf + 'adv_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
+    test_noisy_data = torch.load(args.outf + 'noisy_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
 
     total = 0
 
