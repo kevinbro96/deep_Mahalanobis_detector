@@ -435,7 +435,7 @@ def get_KD(model, vae, test_data, test_label,  train_feature,
         pred = out.data.max(1)[1]
         train_features = []
         for i in range(batch_size):
-            train_features.append(train_feature[target[i]].unsqueeze(0))
+            train_features.append(train_feature[pred[i]].unsqueeze(0))
         train_features = torch.cat(train_features, dim=0) # 100,5000,c
         out_features = out_features.unsqueeze(1) #100,1,c
 
