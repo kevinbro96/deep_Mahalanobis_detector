@@ -2,7 +2,7 @@ from __future__ import print_function
 import abc
 import os
 import math
-
+from .nearest_embed import NearestEmbed
 import numpy as np
 import logging
 import torch

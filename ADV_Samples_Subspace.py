@@ -17,7 +17,7 @@ from torchvision import transforms
 from torch.autograd import Variable
 
 parser = argparse.ArgumentParser(description='PyTorch code: Mahalanobis detector')
-parser.add_argument('--batch_size', type=int, default=200, metavar='N', help='batch size for data loader')
+parser.add_argument('--batch_size', type=int, default=32, metavar='N', help='batch size for data loader')
 parser.add_argument('--dataset', required=True, help='cifar10 | imagenet')
 parser.add_argument('--dataroot', default='./data', help='path to dataset')
 parser.add_argument('--outf', default='./adv_output/', help='folder to output results')
@@ -48,7 +48,9 @@ def main():
 
     # load networks
     if args.dataset == 'imagenet':
-        in_transform = transforms.Compose([ transforms.Resize(val_size), \
+    
+        in_transform = transforms.Compose([ transforms.Resize(256), \
+                                            transforms.CenterCrop(224), \
                                             transforms.ToTensor(), \
                                            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)), \
                                            ])
@@ -56,7 +58,7 @@ def main():
         min_pixel = -2.117903930131004
         max_pixel = 2.64
         if args.adv_type == 'FGSM':
-            random_noise_size = 0.25 / 4
+            random_noise_size = 0.25/ 4
         else:
             random_noise_size = 0.13 / 2
         model = models.ResNet50(9)
@@ -65,7 +67,7 @@ def main():
         save_model = torch.load(args.vae_path)['state_dict']
         state_dict = {k.replace('classifier.', ''): v for k, v in save_model.items() if
                       k.replace('classifier.', '') in model_dict.keys()}
-        print(state_dict.keys())
+        #print(state_dict.keys())
         model_dict.update(state_dict)
         model.load_state_dict(model_dict)
         model.cuda()
@@ -73,11 +75,11 @@ def main():
         model.eval()
         print('load model: ' + args.net_type)
 
-        vae = models.CVAE_imagenet(d=32, z=2048)
+        vae = models.CVAE_imagenet(d=64, k=128)
         vae = nn.DataParallel(vae)
         model_dict = vae.state_dict()
         state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
-        print(state_dict.keys())
+        #print(state_dict.keys())
         model_dict.update(state_dict)
         vae.load_state_dict(model_dict)
         vae.cuda()
@@ -230,6 +232,7 @@ def main():
             selected_index += 1
             
         total += data.size(0)
+        print('loading:{}/{}\n'.format(total/args.batch_size, len(test_loader)))
 
     selected_list = torch.LongTensor(selected_list)
     clean_data_tot = torch.index_select(clean_data_tot, 0, selected_list)

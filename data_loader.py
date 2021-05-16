@@ -4,6 +4,10 @@ import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import os
+import robustness
+from robustness.tools import folder, constants
+from robustness.tools.helpers import get_label_mapping
+from robustness.data_augmentation import Lighting
 
 def getSVHN(batch_size, TF, data_root='/tmp/public_dataset/pytorch', train=True, val=True, **kwargs):
     data_root = os.path.expanduser(os.path.join(data_root, 'svhn-data'))
@@ -82,8 +86,8 @@ def getCIFAR100(batch_size, TF, data_root='/tmp/public_dataset/pytorch', train=T
     return ds
 
 def getIMAGENET(batch_size, TF, data_root='/tmp/public_dataset/pytorch', train=True, val=True, **kwargs):
-    traindir = os.path.join(data_root, 'train')
-    valdir = os.path.join(data_root, 'val')
+    traindir = os.path.join(data_root, 'ILSVRC2012_img_train')
+    valdir = os.path.join(data_root, 'ILSVRC2012_img_val')
     num_workers = kwargs.setdefault('num_workers', 1)
     kwargs.pop('input_size', None)
     ds = []
@@ -103,7 +107,7 @@ def getIMAGENET(batch_size, TF, data_root='/tmp/public_dataset/pytorch', train=T
                                          label_mapping=label_map)
         val_loader = torch.utils.data.DataLoader(
             val_dataset,
-            batch_size=batch_size, shuffle=False,
+            batch_size=batch_size, shuffle=True,
             num_workers=num_workers, pin_memory=True,
         )
         ds.append(val_loader)
