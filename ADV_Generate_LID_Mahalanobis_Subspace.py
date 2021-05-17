@@ -38,42 +38,68 @@ def main():
     torch.cuda.manual_seed(0)
     torch.cuda.set_device(args.gpu)
     # check the in-distribution dataset
-    if args.dataset == 'cifar100':
-        args.num_classes = 100
+    if args.dataset == 'imagenet':
+        args.num_classes = 9
         
     # load networks
-    if args.net_type == 'densenet':
-        if args.dataset == 'svhn':
-            model = models.DenseNet3(100, int(args.num_classes))
-            model.load_state_dict(torch.load(pre_trained_net, map_location = "cuda:" + str(args.gpu)))
-        else:
-            model = torch.load(pre_trained_net, map_location = "cuda:" + str(args.gpu))
-        in_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((125.3/255, 123.0/255, 113.9/255), (63.0/255, 62.1/255.0, 66.7/255.0)),])
-    elif args.net_type == 'resnet':
-        # model = models.ResNet34(num_c=args.num_classes)
-        # model.load_state_dict(torch.load(pre_trained_net, map_location = "cuda:" + str(args.gpu)))
-        in_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),])
+    if args.dataset == 'imagenet':
+    
+        in_transform = transforms.Compose([ transforms.Resize(256), \
+                                            transforms.CenterCrop(224), \
+                                            transforms.ToTensor(), \
+                                           transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)), \
+                                           ])
 
-    model = models.Wide_ResNet(28, 10, 0.3, 10)
-    model = nn.DataParallel(model)
-    model_dict = model.state_dict()
-    save_model = torch.load(args.vae_path)
-    state_dict = {k.replace('classifier.',''): v for k, v in save_model.items() if k.replace('classifier.','') in model_dict.keys()}
-    print(state_dict.keys())
-    model_dict.update(state_dict)
-    model.load_state_dict(model_dict)
-    model.cuda()
-    model.eval()
-    print('load model: ' + args.net_type)
-    vae = models.CVAE(d=32, z=2048)
-    vae = nn.DataParallel(vae)
-    model_dict = vae.state_dict()
-    state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
-    print(state_dict.keys())
-    model_dict.update(state_dict)
-    vae.load_state_dict(model_dict)
-    vae.cuda()
-    vae.eval()
+        model = models.ResNet50(9)
+        model = nn.DataParallel(model)
+        model_dict = model.state_dict()
+        save_model = torch.load(args.vae_path)['state_dict']
+        state_dict = {k.replace('classifier.', ''): v for k, v in save_model.items() if
+                      k.replace('classifier.', '') in model_dict.keys()}
+        #print(state_dict.keys())
+        model_dict.update(state_dict)
+        model.load_state_dict(model_dict)
+        model.cuda()
+        model.float()
+        model.eval()
+        print('load model: ' + args.net_type)
+
+        vae = models.CVAE_imagenet(d=64, k=128)
+        vae = nn.DataParallel(vae)
+        model_dict = vae.state_dict()
+        state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
+        #print(state_dict.keys())
+        model_dict.update(state_dict)
+        vae.load_state_dict(model_dict)
+        vae.cuda()
+        vae.float()
+        vae.eval()
+
+    elif args.dataset == 'cifar10':
+        in_transform = transforms.Compose([transforms.ToTensor(), \
+                                           transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),])
+        
+        model = models.Wide_ResNet(28, 10, 0.3, 10)
+        model = nn.DataParallel(model)
+        model_dict = model.state_dict()
+        save_model = torch.load(args.vae_path)
+        state_dict = {k.replace('classifier.',''): v for k, v in save_model.items() if k.replace('classifier.','') in model_dict.keys()}
+        print(state_dict.keys())
+        model_dict.update(state_dict)
+        model.load_state_dict(model_dict)
+        model.cuda()
+        model.eval()
+        print('load model: ' + args.net_type)
+
+        vae = models.CVAE(d=32, z=2048)
+        vae = nn.DataParallel(vae)
+        model_dict = vae.state_dict()
+        state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
+        print(state_dict.keys())
+        model_dict.update(state_dict)
+        vae.load_state_dict(model_dict)
+        vae.cuda()
+        vae.eval()
 
     # load dataset
     print('load target data: ', args.dataset)
@@ -85,7 +111,7 @@ def main():
 
     # set information about feature extaction
     model.eval()
-    temp_x = torch.rand(2,3,32,32).cuda()
+    temp_x = torch.rand(2,3,224,224).cuda()
     temp_x = Variable(temp_x)
     temp_list = model.module.feature_list(temp_x-vae(temp_x))[1]
     num_output = len(temp_list)

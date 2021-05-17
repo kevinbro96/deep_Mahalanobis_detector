@@ -64,6 +64,8 @@ def sample_estimator(model, vae, num_classes, feature_list, train_loader):
         list_features.append(temp_list)
     
     for data, target in train_loader:
+        if total>=50000:
+            break
         total += data.size(0)
         data = data.cuda()
         data = Variable(data)
@@ -266,7 +268,7 @@ def get_Mahalanobis_score_adv(model, vae, test_data, test_label, num_classes, ou
     '''
     model.eval()
     Mahalanobis = []
-    batch_size = 100
+    batch_size = 16
     total = 0
     
     for data_index in range(int(np.floor(test_data.size(0)/batch_size))):
@@ -335,7 +337,7 @@ def get_LID(model, vae, test_clean_data, test_adv_data, test_noisy_data, test_la
     '''
     model.eval()  
     total = 0
-    batch_size = 100
+    batch_size = 16
     
     LID, LID_adv, LID_noisy = [], [], []    
     overlap_list = [10, 20, 30, 40, 50, 60, 70, 80, 90]
@@ -419,7 +421,7 @@ def get_KD(model, vae, test_data, test_label,  train_feature,
     model.eval()
     vae.eval()
     KernelDensity = []
-    batch_size = 100
+    batch_size = 16
     total = 0
     train_feature = train_feature[layer_index]  # 10,5000,c
     for data_index in range(int(np.floor(test_data.size(0) / batch_size))):
@@ -466,6 +468,8 @@ def KD_extracter(model, vae, num_classes, feature_list, train_loader):
         list_features.append(temp_list)
 
     for data, target in train_loader:
+        if total>=50000:
+            break
         total += data.size(0)
         data = data.cuda()
         data = Variable(data)
