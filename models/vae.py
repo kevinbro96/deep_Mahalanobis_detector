@@ -180,7 +180,8 @@ class CVAE_imagenet(nn.Module):
         z_q, _ = self.emb(z_e, weight_sg=True)
         emb, _ = self.emb(z_e.detach())
 
-        l = self.decode(z_q)
+        #l = self.decode(z_q)
+        l = self.decode(z_e)
         xi = self.L_bn(l)
 
-        return  xi
+        return  xi#, z_q.view(z_q.size(0), -1)

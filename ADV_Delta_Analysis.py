@@ -41,7 +41,6 @@ def main():
     vae.cuda()
     vae.eval()
 
-
     print('load target data: ', args.dataset)
     test_clean_data = torch.load(args.outf + 'clean_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
     test_adv_data = torch.load(args.outf + 'adv_data_%s_%s_%s.pth' % (args.net_type, args.dataset, args.adv_type))
